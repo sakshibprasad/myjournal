@@ -31,14 +31,18 @@
   }
   /* Fold-unfolded / small tablet range (e.g. Galaxy Z Fold unfolded ~ 700-900px) */
   @media (min-width:700px){
-    :root{ --app-w:640px; }
+    :root{ --app-w:680px; }
   }
   /* Tablets and large foldables (e.g. Fold Ultra unfolded, iPad, Android tablets) */
   @media (min-width:1000px){
-    :root{ --app-w:760px; }
+    :root{ --app-w:860px; }
+  }
+  /* Very large tablets / Fold Ultra in landscape */
+  @media (min-width:1400px){
+    :root{ --app-w:1040px; }
   }
   *{box-sizing:border-box; touch-action:manipulation;}
-  html,body{margin:0;padding:0;}
+  html,body{margin:0;padding:0; background:var(--ink); min-height:100%;}
   body{
     background:var(--ink);
     color:var(--text-hi);
@@ -114,6 +118,10 @@
     --text-lo:#a8934f;
     --text-hi:#3d3418;
   }
+  html[data-theme="light"]{ --ink:#f7f0e1; }
+  html[data-theme="sage"]{ --ink:#f1f4ea; }
+  html[data-theme="olive"]{ --ink:#f7f6f0; }
+  html[data-theme="yellow"]{ --ink:#fdf6df; }
   #app[data-theme="light"] .seal, #app[data-theme="sage"] .seal,
   #app[data-theme="olive"] .seal, #app[data-theme="yellow"] .seal{
     box-shadow:0 3px 6px rgba(0,0,0,.18), inset 0 0 0 1px rgba(255,255,255,.15);
@@ -744,13 +752,12 @@
   .mode-toggle button.active{ background:#fff; color:#2b2620; box-shadow:0 2px 6px rgba(0,0,0,.1); }
 
   .canvas-wrap{
-    margin:16px 18px 24px; position:relative; flex:1;
+    margin:0; position:relative; flex:1;
     display:flex; flex-direction:column;
   }
   .canvas-page{
-    border-radius:14px; overflow:hidden;
+    border-radius:0; overflow:hidden;
     background:#faf3e6; position:relative; flex:1; min-height:340px; touch-action:none;
-    box-shadow:inset 0 0 0 1px #ded2b8;
   }
   .canvas-el{
     position:absolute; cursor:grab; user-select:none; touch-action:none;
@@ -1205,7 +1212,7 @@
 
     <div class="canvas-wrap hidden-mode" id="canvasWrap">
       <div class="canvas-page" id="canvasPage">
-        <div class="canvas-empty" id="canvasEmptyHint">Tap + to add a photo, sticker, or text</div>
+        <div class="canvas-empty" id="canvasEmptyHint">Tap anywhere to write, or tap + for a photo/sticker</div>
       </div>
       <div class="canvas-menu hidden" id="canvasMenu">
         <button data-action="text">Text</button>
@@ -1666,8 +1673,10 @@ function renderCanvasToolbar(){
   };
 }
 
+let canvasTapStart = null;
 document.getElementById('canvasPage').addEventListener('pointerdown', (e)=>{
   if(e.target.id === 'canvasPage' || e.target.id === 'canvasEmptyHint'){
+    canvasTapStart = { x: e.clientX, y: e.clientY };
     if(document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('canvas-el')){
       document.activeElement.blur();
     }
@@ -1676,6 +1685,31 @@ document.getElementById('canvasPage').addEventListener('pointerdown', (e)=>{
     renderCanvasToolbar();
   }
 });
+document.getElementById('canvasPage').addEventListener('pointerup', (e)=>{
+  if(!canvasTapStart) return;
+  const moved = Math.hypot(e.clientX - canvasTapStart.x, e.clientY - canvasTapStart.y);
+  canvasTapStart = null;
+  if(moved > 6) return; // was a drag/scroll, not a tap
+  if(e.target.id === 'canvasPage' || e.target.id === 'canvasEmptyHint'){
+    addTextAtPosition(e.clientX, e.clientY);
+  }
+});
+
+function addTextAtPosition(clientX, clientY){
+  const page = document.getElementById('canvasPage');
+  const rect = page.getBoundingClientRect();
+  const xPct = clamp(((clientX - rect.left) / rect.width) * 100, 0, 88);
+  const yPct = clamp(((clientY - rect.top) / rect.height) * 100, 0, 90);
+  const el = { id: 'c' + (++canvasElCounter), type: 'text', content: '', x: xPct, y: yPct, font: 'EB Garamond' };
+  canvasElements.push(el);
+  renderCanvasElement(el);
+  selectCanvasEl(el.id);
+  document.getElementById('canvasEmptyHint').style.display = 'none';
+  setTimeout(()=>{
+    const target = document.querySelector(`.canvas-el[data-id="${el.id}"]`);
+    if(target) target.focus();
+  }, 30);
+}
 
 document.getElementById('canvasFabBtn').onclick = ()=>{
   document.getElementById('canvasMenu').classList.toggle('hidden');
@@ -1696,7 +1730,7 @@ function resetCanvas(){
   canvasElements = [];
   selectedCanvasId = null;
   const page = document.getElementById('canvasPage');
-  page.innerHTML = '<div class="canvas-empty" id="canvasEmptyHint">Tap + to add a photo, sticker, or text</div>';
+  page.innerHTML = '<div class="canvas-empty" id="canvasEmptyHint">Tap anywhere to write, or tap + for a photo/sticker</div>';
 }
 
 const STICKERS = ['✦','☾','❦','🌿','☕','⚘','✉','🌙'];
@@ -2357,6 +2391,7 @@ document.getElementById('clearBtn').onclick = ()=>{
 const LS_THEME = 'dearlater_theme';
 function applyTheme(theme){
   document.getElementById('app').dataset.theme = theme;
+  document.documentElement.dataset.theme = theme;
   document.getElementById('themeToggle').textContent = theme === 'dark' ? '☀' : '☾';
   localStorage.setItem(LS_THEME, theme);
   document.querySelectorAll('.theme-swatch').forEach(sw=>{
