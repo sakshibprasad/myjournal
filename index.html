@@ -635,7 +635,7 @@
     position:fixed; left:50%; bottom:96px; transform:translateX(-50%) translateY(20px);
     background:var(--gold); color:#2b2013; padding:12px 18px; border-radius:12px;
     font-family:'IBM Plex Mono',monospace; font-size:12.5px; box-shadow:0 8px 24px rgba(0,0,0,.4);
-    opacity:0; transition:all .3s ease; max-width:88%; text-align:center; z-index:50;
+    opacity:0; transition:all .3s ease; max-width:88%; text-align:center; z-index:900;
     display:flex; align-items:center; gap:14px;
   }
   .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
@@ -734,9 +734,49 @@
     padding:20px 22px 40px; resize:none;
   }
   .compose-textarea:focus{ outline:none; }
+  .compose-footer-row{
+    display:flex; align-items:center; justify-content:center; gap:14px;
+    padding-bottom:10px; flex-shrink:0;
+  }
   .compose-count{
     text-align:center; font-family:'IBM Plex Mono',monospace; font-size:10.5px;
-    color:#9a8c74; padding-bottom:10px; flex-shrink:0;
+    color:#9a8c74;
+  }
+  .grammar-btn{
+    background:#efe4cc; border:none; border-radius:16px; padding:6px 14px;
+    font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#5c5340; cursor:pointer;
+  }
+  .grammar-btn:active{ transform:scale(0.96); }
+  .grammar-btn.checking{ opacity:.6; }
+
+  .grammar-results{
+    margin:0 18px 14px; max-height:220px; overflow-y:auto;
+    background:#efe4cc; border-radius:12px; padding:10px;
+  }
+  .grammar-results.hidden{ display:none; }
+  .grammar-empty{
+    text-align:center; font-family:'Cormorant Garamond',serif; font-style:italic;
+    font-size:14px; color:#7a6f5c; padding:10px;
+  }
+  .grammar-item{
+    background:#fff; border-radius:10px; padding:10px 12px; margin-bottom:8px;
+  }
+  .grammar-item:last-child{ margin-bottom:0; }
+  .grammar-context{
+    font-family:'EB Garamond',serif; font-size:14px; color:#2b2620; line-height:1.4; margin-bottom:4px;
+  }
+  .grammar-context mark{ background:#f3c9a3; padding:0 2px; border-radius:3px; }
+  .grammar-msg{
+    font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#8a7c66; margin-bottom:8px;
+  }
+  .grammar-fixes{ display:flex; gap:6px; flex-wrap:wrap; }
+  .grammar-fix-btn{
+    background:var(--rust); color:#fff2e9; border:none; border-radius:14px;
+    padding:5px 12px; font-family:'IBM Plex Mono',monospace; font-size:11px; cursor:pointer;
+  }
+  .grammar-ignore-btn{
+    background:none; border:none; color:#9a8c74; font-family:'IBM Plex Mono',monospace;
+    font-size:11px; cursor:pointer; padding:5px 8px;
   }
   .hidden-mode{ display:none !important; }
 
@@ -1208,7 +1248,11 @@
     <div class="compose-attachments" id="composeAttachments"></div>
 
     <textarea id="composeText" class="compose-textarea" placeholder="Start writing…"></textarea>
-    <div class="compose-count" id="composeCount">0 words</div>
+    <div class="compose-footer-row" id="composeCount">
+      <span id="wordCountText">0 words</span>
+      <button class="grammar-btn" id="grammarBtn" type="button">Check grammar</button>
+    </div>
+    <div class="grammar-results hidden" id="grammarResults"></div>
 
     <div class="canvas-wrap hidden-mode" id="canvasWrap">
       <div class="canvas-page" id="canvasPage">
@@ -1989,8 +2033,79 @@ function openCompose(existing){
 
 document.getElementById('composeText').addEventListener('input', (e)=>{
   const words = e.target.value.trim().split(/\s+/).filter(Boolean).length;
-  document.getElementById('composeCount').textContent = words + (words===1 ? ' word' : ' words');
+  document.getElementById('wordCountText').textContent = words + (words===1 ? ' word' : ' words');
+  // Text changed since the last check, so old offsets are no longer trustworthy.
+  document.getElementById('grammarResults').classList.add('hidden');
 });
+
+/* ---------- grammar check ---------- */
+async function checkGrammar(){
+  const ta = document.getElementById('composeText');
+  const btn = document.getElementById('grammarBtn');
+  const resultsBox = document.getElementById('grammarResults');
+  const text = ta.value.trim();
+  if(!text){ showToast('Write something first'); return; }
+
+  btn.classList.add('checking');
+  btn.textContent = 'Checking…';
+  resultsBox.classList.add('hidden');
+
+  try{
+    const res = await fetch('https://api.languagetool.org/v2/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'text=' + encodeURIComponent(ta.value) + '&language=en-US'
+    });
+    if(!res.ok) throw new Error('bad response');
+    const data = await res.json();
+    renderGrammarResults(data.matches || []);
+  }catch(err){
+    showToast('Grammar check needs an internet connection');
+  }finally{
+    btn.classList.remove('checking');
+    btn.textContent = 'Check grammar';
+  }
+}
+
+function renderGrammarResults(matches){
+  const box = document.getElementById('grammarResults');
+  box.classList.remove('hidden');
+  if(!matches.length){
+    box.innerHTML = '<div class="grammar-empty">No issues found. Looks good.</div>';
+    return;
+  }
+  box.innerHTML = matches.slice(0, 12).map((m, i)=>{
+    const before = escapeHTML(m.context.text.slice(0, m.context.offset));
+    const flagged = escapeHTML(m.context.text.slice(m.context.offset, m.context.offset + m.context.length));
+    const after = escapeHTML(m.context.text.slice(m.context.offset + m.context.length));
+    const fixes = (m.replacements || []).slice(0, 3);
+    const fixButtons = fixes.length
+      ? fixes.map(r => `<button class="grammar-fix-btn" data-idx="${i}" data-replace="${escapeHTML(r.value)}">${escapeHTML(r.value) || '(remove)'}</button>`).join('')
+      : '';
+    return `<div class="grammar-item" data-offset="${m.offset}" data-length="${m.length}">
+      <div class="grammar-context">${before}<mark>${flagged}</mark>${after}</div>
+      <div class="grammar-msg">${escapeHTML(m.shortMessage || m.message || '')}</div>
+      <div class="grammar-fixes">${fixButtons}<button class="grammar-ignore-btn" data-ignore="${i}">Ignore</button></div>
+    </div>`;
+  }).join('');
+
+  box.querySelectorAll('.grammar-fix-btn').forEach(btn=>{
+    btn.onclick = ()=>{
+      const item = btn.closest('.grammar-item');
+      const offset = parseInt(item.dataset.offset, 10);
+      const length = parseInt(item.dataset.length, 10);
+      const replacement = btn.dataset.replace;
+      const ta = document.getElementById('composeText');
+      ta.value = ta.value.slice(0, offset) + replacement + ta.value.slice(offset + length);
+      ta.dispatchEvent(new Event('input'));
+      checkGrammar(); // re-check so remaining offsets stay accurate
+    };
+  });
+  box.querySelectorAll('[data-ignore]').forEach(btn=>{
+    btn.onclick = ()=> btn.closest('.grammar-item').remove();
+  });
+}
+document.getElementById('grammarBtn').onclick = checkGrammar;
 
 function closeCompose(){
   if(recording && recognizer){ recognizer.stop(); }
