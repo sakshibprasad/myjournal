@@ -748,20 +748,47 @@
   }
   .grammar-btn:active{ transform:scale(0.96); }
   .grammar-btn.checking{ opacity:.6; }
+  .grammar-badge{
+    background:var(--rust); color:#fff2e9; border-radius:8px; padding:1px 6px;
+    font-size:9.5px; margin-left:5px;
+  }
 
   .grammar-results{
-    margin:0 18px 14px; max-height:220px; overflow-y:auto;
+    margin:0 18px 14px; max-height:280px; overflow-y:auto;
     background:#efe4cc; border-radius:12px; padding:10px;
   }
   .grammar-results.hidden{ display:none; }
+  .grammar-header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:2px 4px 10px;
+  }
+  .grammar-header-title{
+    font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#5c5340; text-transform:uppercase; letter-spacing:.06em;
+  }
+  .grammar-header-actions{ display:flex; gap:8px; align-items:center; }
+  .grammar-fixall-btn{
+    background:var(--rust); color:#fff2e9; border:none; border-radius:14px;
+    padding:5px 11px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; cursor:pointer;
+  }
+  .grammar-close-btn{
+    background:none; border:none; color:#8a7c66; font-size:15px; cursor:pointer; padding:0 4px;
+  }
   .grammar-empty{
     text-align:center; font-family:'Cormorant Garamond',serif; font-style:italic;
     font-size:14px; color:#7a6f5c; padding:10px;
   }
   .grammar-item{
     background:#fff; border-radius:10px; padding:10px 12px; margin-bottom:8px;
+    border-left:3px solid #9a8c74;
   }
+  .grammar-item[data-cat="spelling"]{ border-left-color:#b1552e; }
+  .grammar-item[data-cat="grammar"]{ border-left-color:#c9a15a; }
+  .grammar-item[data-cat="style"]{ border-left-color:#6f7fa3; }
   .grammar-item:last-child{ margin-bottom:0; }
+  .grammar-cat-label{
+    font-family:'IBM Plex Mono',monospace; font-size:9px; text-transform:uppercase; letter-spacing:.06em;
+    color:#9a8c74; margin-bottom:3px;
+  }
   .grammar-context{
     font-family:'EB Garamond',serif; font-size:14px; color:#2b2620; line-height:1.4; margin-bottom:4px;
   }
@@ -1124,6 +1151,14 @@
       </div>
 
       <div class="settings-section">
+        <label>Grammar check language</label>
+        <div class="font-swatches" id="grammarLangSwatches">
+          <button class="font-swatch active" data-lang="en-US">US English</button>
+          <button class="font-swatch" data-lang="en-GB">UK English</button>
+        </div>
+      </div>
+
+      <div class="settings-section">
         <label>Insights</label>
         <button class="btn btn-ghost btn-full" id="moodTrendsBtn">Mood trends</button>
         <button class="btn btn-ghost btn-full" id="yearReviewBtn">Year in review</button>
@@ -1250,7 +1285,7 @@
     <textarea id="composeText" class="compose-textarea" placeholder="Start writing…"></textarea>
     <div class="compose-footer-row" id="composeCount">
       <span id="wordCountText">0 words</span>
-      <button class="grammar-btn" id="grammarBtn" type="button">Check grammar</button>
+      <button class="grammar-btn" id="grammarBtn" type="button">Check grammar<span class="grammar-badge hidden-mode" id="grammarBadge">0</span></button>
     </div>
     <div class="grammar-results hidden" id="grammarResults"></div>
 
@@ -2024,6 +2059,9 @@ function openCompose(existing){
   renderStickerPicker();
   renderTemplatePicker();
   renderComposeAttachments();
+  lastGrammarMatches = [];
+  document.getElementById('grammarResults').classList.add('hidden');
+  document.getElementById('grammarBadge').classList.add('hidden-mode');
   document.getElementById('composeText').dispatchEvent(new Event('input'));
   const overlay = document.getElementById('composeOverlay');
   overlay.classList.add('open');
@@ -2031,63 +2069,114 @@ function openCompose(existing){
   setTimeout(()=> document.getElementById('composeText').focus(), 320);
 }
 
+let grammarDebounceTimer = null;
+let lastGrammarMatches = [];
 document.getElementById('composeText').addEventListener('input', (e)=>{
   const words = e.target.value.trim().split(/\s+/).filter(Boolean).length;
   document.getElementById('wordCountText').textContent = words + (words===1 ? ' word' : ' words');
   // Text changed since the last check, so old offsets are no longer trustworthy.
   document.getElementById('grammarResults').classList.add('hidden');
+  clearTimeout(grammarDebounceTimer);
+  const text = e.target.value.trim();
+  if(text.split(/\s+/).length < 4){
+    document.getElementById('grammarBadge').classList.add('hidden-mode');
+    return;
+  }
+  grammarDebounceTimer = setTimeout(()=> checkGrammar(true), 2200);
 });
 
 /* ---------- grammar check ---------- */
-async function checkGrammar(){
+const LS_GRAMMAR_LANG = 'dearlater_grammar_lang';
+function grammarLang(){ return localStorage.getItem(LS_GRAMMAR_LANG) || 'en-US'; }
+document.querySelectorAll('#grammarLangSwatches .font-swatch').forEach(sw=>{
+  if(sw.dataset.lang === grammarLang()) sw.classList.add('active');
+  sw.onclick = ()=>{
+    localStorage.setItem(LS_GRAMMAR_LANG, sw.dataset.lang);
+    document.querySelectorAll('#grammarLangSwatches .font-swatch').forEach(s=> s.classList.toggle('active', s === sw));
+    showToast('Grammar language set to ' + sw.textContent);
+  };
+});
+
+async function checkGrammar(silent){
   const ta = document.getElementById('composeText');
   const btn = document.getElementById('grammarBtn');
   const resultsBox = document.getElementById('grammarResults');
   const text = ta.value.trim();
-  if(!text){ showToast('Write something first'); return; }
+  if(!text){ if(!silent) showToast('Write something first'); return; }
 
-  btn.classList.add('checking');
-  btn.textContent = 'Checking…';
-  resultsBox.classList.add('hidden');
+  if(!silent){
+    btn.classList.add('checking');
+    resultsBox.classList.add('hidden');
+  }
 
   try{
     const res = await fetch('https://api.languagetool.org/v2/check', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'text=' + encodeURIComponent(ta.value) + '&language=en-US'
+      body: 'text=' + encodeURIComponent(ta.value) + '&language=' + grammarLang() + '&level=picky'
     });
     if(!res.ok) throw new Error('bad response');
     const data = await res.json();
-    renderGrammarResults(data.matches || []);
+    lastGrammarMatches = data.matches || [];
+    const badge = document.getElementById('grammarBadge');
+    if(lastGrammarMatches.length){
+      badge.textContent = lastGrammarMatches.length;
+      badge.classList.remove('hidden-mode');
+    } else {
+      badge.classList.add('hidden-mode');
+    }
+    if(!silent) renderGrammarResults(lastGrammarMatches);
   }catch(err){
-    showToast('Grammar check needs an internet connection');
+    if(!silent) showToast('Grammar check needs an internet connection');
   }finally{
     btn.classList.remove('checking');
-    btn.textContent = 'Check grammar';
   }
+}
+
+function categoryOf(m){
+  const t = (m.rule && (m.rule.issueType || (m.rule.category && m.rule.category.id))) || '';
+  const lower = t.toLowerCase();
+  if(lower.includes('misspelling') || lower.includes('typo')) return 'spelling';
+  if(lower.includes('style')) return 'style';
+  return 'grammar';
 }
 
 function renderGrammarResults(matches){
   const box = document.getElementById('grammarResults');
   box.classList.remove('hidden');
+  const header = `<div class="grammar-header">
+    <span class="grammar-header-title">${matches.length} suggestion${matches.length===1?'':'s'}</span>
+    <div class="grammar-header-actions">
+      ${matches.length ? '<button class="grammar-fixall-btn" id="grammarFixAll">Fix all</button>' : ''}
+      <button class="grammar-close-btn" id="grammarCloseBtn">✕</button>
+    </div>
+  </div>`;
   if(!matches.length){
-    box.innerHTML = '<div class="grammar-empty">No issues found. Looks good.</div>';
+    box.innerHTML = header + '<div class="grammar-empty">No issues found. Looks good.</div>';
+    document.getElementById('grammarCloseBtn').onclick = ()=> box.classList.add('hidden');
     return;
   }
-  box.innerHTML = matches.slice(0, 12).map((m, i)=>{
+  const items = matches.slice(0, 15).map((m, i)=>{
+    const cat = categoryOf(m);
     const before = escapeHTML(m.context.text.slice(0, m.context.offset));
     const flagged = escapeHTML(m.context.text.slice(m.context.offset, m.context.offset + m.context.length));
     const after = escapeHTML(m.context.text.slice(m.context.offset + m.context.length));
     const fixes = (m.replacements || []).slice(0, 3);
     const fixButtons = fixes.length
-      ? fixes.map(r => `<button class="grammar-fix-btn" data-idx="${i}" data-replace="${escapeHTML(r.value)}">${escapeHTML(r.value) || '(remove)'}</button>`).join('')
+      ? fixes.map(r => `<button class="grammar-fix-btn" data-replace="${escapeHTML(r.value)}">${escapeHTML(r.value) || '(remove)'}</button>`).join('')
       : '';
-    return `<div class="grammar-item" data-offset="${m.offset}" data-length="${m.length}">
+    return `<div class="grammar-item" data-cat="${cat}" data-offset="${m.offset}" data-length="${m.length}">
+      <div class="grammar-cat-label">${cat}</div>
       <div class="grammar-context">${before}<mark>${flagged}</mark>${after}</div>
       <div class="grammar-msg">${escapeHTML(m.shortMessage || m.message || '')}</div>
-      <div class="grammar-fixes">${fixButtons}<button class="grammar-ignore-btn" data-ignore="${i}">Ignore</button></div>
+      <div class="grammar-fixes">${fixButtons}<button class="grammar-ignore-btn" data-ignore="1">Ignore</button></div>
     </div>`;
   }).join('');
+  box.innerHTML = header + items;
+
+  document.getElementById('grammarCloseBtn').onclick = ()=> box.classList.add('hidden');
+  const fixAllBtn = document.getElementById('grammarFixAll');
+  if(fixAllBtn) fixAllBtn.onclick = fixAllGrammar;
 
   box.querySelectorAll('.grammar-fix-btn').forEach(btn=>{
     btn.onclick = ()=>{
@@ -2105,7 +2194,25 @@ function renderGrammarResults(matches){
     btn.onclick = ()=> btn.closest('.grammar-item').remove();
   });
 }
-document.getElementById('grammarBtn').onclick = checkGrammar;
+
+function fixAllGrammar(){
+  const ta = document.getElementById('composeText');
+  let value = ta.value;
+  // Apply from the end backward so earlier offsets stay valid as we go.
+  const fixable = lastGrammarMatches
+    .filter(m => m.replacements && m.replacements.length)
+    .sort((a, b) => b.offset - a.offset);
+  fixable.forEach(m=>{
+    const replacement = m.replacements[0].value;
+    value = value.slice(0, m.offset) + replacement + value.slice(m.offset + m.length);
+  });
+  ta.value = value;
+  ta.dispatchEvent(new Event('input'));
+  showToast('Applied ' + fixable.length + ' fix' + (fixable.length===1?'':'es'));
+  checkGrammar();
+}
+
+document.getElementById('grammarBtn').onclick = ()=> checkGrammar(false);
 
 function closeCompose(){
   if(recording && recognizer){ recognizer.stop(); }
