@@ -15,7 +15,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&family=Caveat:wght@400;600&display=swap" rel="stylesheet">
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
   import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
   const firebaseConfig = {
@@ -29,6 +29,7 @@
 
   const app = initializeApp(firebaseConfig);
   window.db = getFirestore(app);
+  window.__fs = { doc, setDoc, getDoc, onSnapshot };
   const auth = getAuth(app);
   window.__auth = auth;
 
@@ -48,7 +49,10 @@
     }
   }
 
-  onAuthStateChanged(auth, (user) => updateAccountUI(user));
+  onAuthStateChanged(auth, (user) => {
+    updateAccountUI(user);
+    window.dispatchEvent(new CustomEvent('journal-auth-changed', { detail: { user } }));
+  });
 
   window.addEventListener('DOMContentLoaded', () => {
     const signInBtn = document.getElementById('googleSignInBtn');
@@ -1772,10 +1776,84 @@ const LS_LETTERS = 'dearlater_letters';
 const LS_NOTIFPREF = 'dearlater_notifpref';
 
 const load = (k) => JSON.parse(localStorage.getItem(k) || '[]');
-const save = (k,v) => localStorage.setItem(k, JSON.stringify(v));
+const save = (k,v) => {
+  localStorage.setItem(k, JSON.stringify(v));
+  if((k === LS_ENTRIES || k === LS_LETTERS) && window.__cloudUser){
+    pushToCloud();
+  }
+};
 
 let entries = load(LS_ENTRIES);
 let letters = load(LS_LETTERS);
+
+/* ---------- cloud sync (Firestore, gated on Google sign-in) ---------- */
+let __cloudUnsub = null;
+let __cloudPushTimer = null;
+let __receivingFromCloud = false;
+
+function pushToCloud(){
+  if(!window.__cloudUser || __receivingFromCloud) return;
+  clearTimeout(__cloudPushTimer);
+  __cloudPushTimer = setTimeout(async () => {
+    try{
+      const { doc, setDoc } = window.__fs;
+      await setDoc(doc(window.db, 'journals', window.__cloudUser.uid), {
+        entries, letters, updatedAt: Date.now()
+      });
+    }catch(e){ console.error('Cloud sync failed', e); }
+  }, 800);
+}
+
+async function pullFromCloudThenListen(user){
+  const { doc, getDoc, onSnapshot } = window.__fs;
+  const ref = doc(window.db, 'journals', user.uid);
+  try{
+    const snap = await getDoc(ref);
+    if(snap.exists()){
+      const data = snap.data();
+      __receivingFromCloud = true;
+      entries = data.entries || entries;
+      letters = data.letters || letters;
+      save(LS_ENTRIES, entries);
+      save(LS_LETTERS, letters);
+      __receivingFromCloud = false;
+      if(typeof renderAll === 'function') renderAll();
+    } else {
+      // No cloud copy yet — push whatever is on this device up as the first copy
+      pushToCloud();
+    }
+  }catch(e){ console.error('Initial cloud fetch failed', e); }
+
+  if(__cloudUnsub) __cloudUnsub();
+  __cloudUnsub = onSnapshot(ref, (snap) => {
+    if(!snap.exists()) return;
+    const data = snap.data();
+    if(data.updatedAt && data.updatedAt === window.__lastPushedAt) return;
+    __receivingFromCloud = true;
+    entries = data.entries || entries;
+    letters = data.letters || letters;
+    localStorage.setItem(LS_ENTRIES, JSON.stringify(entries));
+    localStorage.setItem(LS_LETTERS, JSON.stringify(letters));
+    __receivingFromCloud = false;
+    if(typeof renderAll === 'function') renderAll();
+  });
+}
+
+window.addEventListener('journal-auth-changed', (e) => {
+  const user = e.detail.user;
+  window.__cloudUser = user;
+  if(user){
+    pullFromCloudThenListen(user);
+  } else if(__cloudUnsub){
+    __cloudUnsub();
+    __cloudUnsub = null;
+  }
+});
+if(window.__auth && window.__auth.currentUser){
+  window.__cloudUser = window.__auth.currentUser;
+  pullFromCloudThenListen(window.__auth.currentUser);
+}
+
 
 /* ---------- moods ---------- */
 const MOODS = [
