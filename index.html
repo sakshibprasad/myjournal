@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>My Journal</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-mobile-web-app-capable" content="yes">
@@ -304,7 +304,7 @@
     display:grid;
     grid-template-columns:34px 1fr 34px;
     align-items:start;
-    padding:22px 20px 20px;
+    padding:calc(22px + env(safe-area-inset-top, 0px)) 20px 20px;
     border-bottom:1px solid var(--ink-line);
     overflow:hidden;
     transition:min-height .35s ease, padding .35s ease;
@@ -339,7 +339,7 @@
     align-items:flex-end;
     padding:20px 20px 34px;
     border-bottom:none;
-    margin:12px 12px 4px;
+    margin:calc(12px + env(safe-area-inset-top, 0px)) 12px 4px;
     border-radius:24px;
     box-shadow:0 14px 32px rgba(0,0,0,.35);
   }
@@ -363,7 +363,8 @@
     border-color:rgba(255,255,255,.3); color:#fff2e9; z-index:2; position:relative;
   }
 
-  .view{ display:none; padding:20px; animation:fade .18s ease; }
+  .view{ display:none; padding:20px; animation:viewIn .32s cubic-bezier(.25,.8,.35,1); }
+  @keyframes viewIn{ from{ opacity:0; transform:translateY(10px); } to{ opacity:1; transform:none; } }
   .view.active{ display:block; }
   @keyframes fade{ from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;} }
 
@@ -729,6 +730,7 @@
     box-shadow:0 -8px 30px rgba(0,0,0,.35);
     display:flex; justify-content:space-around;
     padding:10px 10px calc(14px + env(safe-area-inset-bottom, 0px));
+    z-index:50;
   }
   nav.bottom button{
     background:none; border:none; color:var(--text-lo);
@@ -766,7 +768,7 @@
 
   .compose-top{
     display:flex; align-items:center; justify-content:space-between;
-    padding:18px 18px 12px;
+    padding:calc(18px + env(safe-area-inset-top, 0px)) 18px 12px;
     border-bottom:1px solid #ded2b8;
     flex-shrink:0;
   }
@@ -1192,6 +1194,29 @@
     0%, 80%, 100%{ opacity:.25; transform:translateY(0); }
     40%{ opacity:1; transform:translateY(-3px); }
   }
+
+  /* --- premium press feedback --- */
+  .entry-card, .qcard, .cal-day, .prompt-card, .letter-card{
+    transition:transform .16s ease, box-shadow .16s ease;
+  }
+  .entry-card:active, .qcard:active, .prompt-card:active, .letter-card:active{
+    transform:scale(0.985);
+  }
+  .cal-day:active{ transform:scale(0.92); }
+  .btn, .template-chip, .mood-pill, .theme-swatch, .font-swatch{
+    transition:transform .14s ease, background .15s ease, color .15s ease;
+  }
+  .btn:active, .template-chip:active, .mood-pill:active, .theme-swatch:active, .font-swatch:active{
+    transform:scale(0.95);
+  }
+  nav.bottom button .ico{ transition:transform .22s cubic-bezier(.34,1.56,.64,1); }
+  nav.bottom button.active .ico{ transform:translateY(-2px) scale(1.15); }
+
+  .forgot-pin-btn{
+    background:none; border:none; color:var(--text-lo);
+    font-family:'IBM Plex Mono',monospace; font-size:11.5px; letter-spacing:.04em;
+    margin-top:20px; cursor:pointer; text-decoration:underline; text-underline-offset:3px;
+  }
 </style>
 </head>
 <body>
@@ -1229,6 +1254,7 @@
     <button class="lock-key wide" data-key="back">⌫</button>
   </div>
   <div class="lock-error-msg" id="lockError"></div>
+  <button class="forgot-pin-btn" id="forgotPinBtn">Forgot PIN?</button>
 </div>
 <div id="app">
 
@@ -3370,6 +3396,7 @@ checkDailyReminder();
 
 /* ---------- app lock (PIN) ---------- */
 const LS_PIN = 'dearlater_pin_hash';
+const LS_RECOVERY = 'dearlater_recovery_hash';
 const LS_BIOMETRIC = 'dearlater_biometric_id';
 async function hashPin(pin){
   const enc = new TextEncoder().encode('dearlater_salt_' + pin);
@@ -3536,9 +3563,11 @@ document.getElementById('pinSetupKeypad').addEventListener('click', async (e)=>{
       if(pinSetupBuffer === pinSetupFirst){
         const hash = await hashPin(pinSetupBuffer);
         localStorage.setItem(LS_PIN, hash);
+        const recovery = generateRecoveryCode();
+        localStorage.setItem(LS_RECOVERY, await hashPin(recovery));
         updatePinButtons();
         document.getElementById('pinSetupScreen').classList.add('hidden');
-        showToast('PIN set');
+        alert('PIN set.\n\nYour recovery code is:\n\n' + recovery + '\n\nWrite it down somewhere safe. It is the ONLY way back in if you forget your PIN \u2014 it will not be shown again.');
       } else {
         document.getElementById('pinSetupError').textContent = "PINs didn't match, try again";
         pinSetupStage = 'new'; pinSetupFirst=''; pinSetupBuffer='';
@@ -3553,8 +3582,42 @@ document.getElementById('pinSetupKeypad').addEventListener('click', async (e)=>{
 document.getElementById('removePinBtn').onclick = ()=>{
   if(!confirm('Remove your PIN? The app will open without a lock.')) return;
   localStorage.removeItem(LS_PIN);
+  localStorage.removeItem(LS_RECOVERY);
   updatePinButtons();
   showToast('PIN removed');
+};
+
+/* ---------- forgot PIN recovery ---------- */
+function generateRecoveryCode(){
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no easily-confused chars
+  let code = '';
+  const rand = new Uint8Array(8);
+  crypto.getRandomValues(rand);
+  for(let i = 0; i < 8; i++){
+    code += chars[rand[i] % chars.length];
+    if(i === 3) code += '-';
+  }
+  return code;
+}
+document.getElementById('forgotPinBtn').onclick = async ()=>{
+  const stored = localStorage.getItem(LS_RECOVERY);
+  if(!stored){
+    alert('No recovery code exists for this PIN (it was set before recovery codes were added).\n\nIf you have fingerprint unlock enrolled, use that. Otherwise the only reset is clearing this site\u2019s data in your browser \u2014 which erases the journal too.');
+    return;
+  }
+  const input = prompt('Enter your recovery code (like AB2C-XY79):');
+  if(!input) return;
+  const normalized = input.trim().toUpperCase();
+  if(await hashPin(normalized) === stored){
+    localStorage.removeItem(LS_PIN);
+    localStorage.removeItem(LS_RECOVERY);
+    document.getElementById('lockScreen').classList.add('hidden');
+    updatePinButtons();
+    showToast('PIN removed \u2014 set a new one in Settings');
+  } else {
+    document.getElementById('lockError').textContent = 'Recovery code incorrect';
+    setTimeout(()=> document.getElementById('lockError').textContent = '', 2500);
+  }
 };
 
 checkAppLock();
