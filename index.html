@@ -16,6 +16,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyDqaxmrzyCrG1mbeJJh_7wHnRbco5NAeRs",
@@ -28,6 +29,46 @@
 
   const app = initializeApp(firebaseConfig);
   window.db = getFirestore(app);
+  const auth = getAuth(app);
+  window.__auth = auth;
+
+  function updateAccountUI(user){
+    const signInBtn = document.getElementById('googleSignInBtn');
+    const signedInBox = document.getElementById('googleSignedInBox');
+    if(!signInBtn || !signedInBox) return;
+    if(user){
+      signInBtn.style.display = 'none';
+      signedInBox.style.display = 'flex';
+      document.getElementById('googleUserPhoto').src = user.photoURL || '';
+      document.getElementById('googleUserName').textContent = user.displayName || '';
+      document.getElementById('googleUserEmail').textContent = user.email || '';
+    } else {
+      signInBtn.style.display = 'flex';
+      signedInBox.style.display = 'none';
+    }
+  }
+
+  onAuthStateChanged(auth, (user) => updateAccountUI(user));
+
+  window.addEventListener('DOMContentLoaded', () => {
+    const signInBtn = document.getElementById('googleSignInBtn');
+    const signOutBtn = document.getElementById('googleSignOutBtn');
+    if(signInBtn){
+      signInBtn.addEventListener('click', async () => {
+        try{
+          await signInWithPopup(auth, new GoogleAuthProvider());
+        }catch(e){
+          alert('Sign-in failed: ' + (e.message || e));
+        }
+      });
+    }
+    if(signOutBtn){
+      signOutBtn.addEventListener('click', async () => {
+        await signOut(auth);
+      });
+    }
+    updateAccountUI(auth.currentUser);
+  });
 </script>
 <style>
   :root{
@@ -1354,6 +1395,20 @@
       <div class="settings-top">
         <h2>Settings</h2>
         <button id="settingsClose" aria-label="Close settings">✕</button>
+      </div>
+
+      <div class="settings-section" id="accountSection">
+        <label>Account</label>
+        <button class="btn" id="googleSignInBtn" style="display:flex;align-items:center;justify-content:center;gap:8px;">Sign in with Google</button>
+        <div id="googleSignedInBox" style="display:none;align-items:center;gap:10px;">
+          <img id="googleUserPhoto" src="" style="width:32px;height:32px;border-radius:50%;" alt="">
+          <div style="flex:1;">
+            <div id="googleUserName" style="font-size:.95em;"></div>
+            <div id="googleUserEmail" style="font-size:.8em;opacity:.65;"></div>
+          </div>
+          <button class="btn" id="googleSignOutBtn" style="width:auto;padding:6px 14px;">Sign out</button>
+        </div>
+        <div class="settings-note">Signing in doesn't move your entries yet — it just links your Google account for future cloud sync.</div>
       </div>
 
       <div class="settings-section">
