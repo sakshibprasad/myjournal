@@ -1810,6 +1810,15 @@ function __lastSyncAtKey(){ return 'dearlater_last_cloud_sync_at'; }
 function __getLastSyncAt(){ var v = localStorage.getItem(__lastSyncAtKey()); return v ? Number(v) : 0; }
 function __setLastSyncAt(t){ try{ localStorage.setItem(__lastSyncAtKey(), String(t)); }catch(e){} }
 
+// Tracks "this device has a local edit that hasn't been confirmed pushed to the cloud yet."
+// This has to be saved to localStorage, not just held in a variable - a plain in-memory flag
+// would be wiped out by the very page refresh it's meant to protect against. Without this,
+// refreshing shortly after an edit (before the debounced push finishes) would let the fresh
+// page load pull the OLD pre-edit cloud data and silently overwrite the edit you just made.
+function __pendingKey(){ return 'dearlater_pending_push'; }
+function __hasPendingPush(){ return localStorage.getItem(__pendingKey()) === '1'; }
+function __setPendingPush(v){ try{ if(v) localStorage.setItem(__pendingKey(), '1'); else localStorage.removeItem(__pendingKey()); }catch(e){} }
+
 function __setSyncStatus(text){
   var el = document.getElementById('cloudSyncStatus');
   if(el) el.textContent = text;
@@ -1837,6 +1846,7 @@ function __reattachLocalPhotos(remoteEntries){
 
 function schedulePushToCloud(){
   if(!window.__cloudUser || __receivingFromCloud) return;
+  __setPendingPush(true); // set immediately and synchronously, before the debounce timer even starts, so it's already persisted if a reload happens moments later
   __setSyncStatus('Syncing…');
   clearTimeout(__cloudPushTimer);
   __cloudPushTimer = setTimeout(async () => {
@@ -1849,13 +1859,15 @@ function schedulePushToCloud(){
         updatedBy: __deviceId,
         updatedAt: ts
       });
+      __setPendingPush(false);
       __setLastSyncAt(ts);
       __setSyncStatus('Synced');
     }catch(e){
       console.error('Cloud sync failed', e);
       __setSyncStatus('Sync failed - will retry on next change');
+      // leave the pending flag set - this local edit still hasn't made it up, so a reload should still protect it
     }
-  }, 800);
+  }, 300);
 }
 
 function __applyRemoteJournalData(data){
@@ -1874,14 +1886,22 @@ async function pullFromCloudThenListen(user){
   const ref = doc(window.db, 'journals', user.uid);
   __setSyncStatus('Checking for existing data…');
   try{
-    const snap = await getDoc(ref);
-    if(snap.exists() && Object.keys(snap.data()).length){
-      __applyRemoteJournalData(snap.data());
-      __setSyncStatus('Synced');
-    } else {
-      // No cloud copy yet - push whatever is on this device up as the first copy
-      __setSyncStatus('Backing up existing data…');
+    if(__hasPendingPush()){
+      // this device has a local edit from before that never got confirmed as pushed (e.g. the page
+      // was refreshed right after an edit, before the debounced push finished) - don't let a fresh
+      // fetch of the (still-old) cloud data stomp on it. Push what's on this device now instead.
+      __setSyncStatus('Finishing previous sync…');
       schedulePushToCloud();
+    } else {
+      const snap = await getDoc(ref);
+      if(snap.exists() && Object.keys(snap.data()).length){
+        __applyRemoteJournalData(snap.data());
+        __setSyncStatus('Synced');
+      } else {
+        // No cloud copy yet - push whatever is on this device up as the first copy
+        __setSyncStatus('Backing up existing data…');
+        schedulePushToCloud();
+      }
     }
   }catch(e){
     console.error('Initial cloud fetch failed', e);
@@ -1895,6 +1915,7 @@ async function pullFromCloudThenListen(user){
     const data = snap.data();
     if(data.updatedBy === __deviceId) return; // our own confirmed write echoing back - already applied when we made it
     if(!data.updatedAt || data.updatedAt <= __getLastSyncAt()) return; // not newer than what we already have (also makes the snapshot that always fires immediately on subscribe harmless)
+    if(__hasPendingPush()) return; // we have our own unsent edit in flight - don't let an incoming update overwrite it; our push will follow shortly and reconcile
     __setSyncStatus('New data from another device…');
     __applyRemoteJournalData(data);
   }, () => { /* listener error (permissions/offline) - not critical, local use and the next push/pull still work */ });
