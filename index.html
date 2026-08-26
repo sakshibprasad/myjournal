@@ -16,7 +16,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-  import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyDqaxmrzyCrG1mbeJJh_7wHnRbco5NAeRs",
@@ -32,6 +32,7 @@
   window.__fs = { doc, setDoc, getDoc, onSnapshot };
   const auth = getAuth(app);
   window.__auth = auth;
+  setPersistence(auth, browserLocalPersistence).catch(function(){ /* falls back to the SDK's own default, which is already local persistence */ });
 
   function updateAccountUI(user){
     const signInBtn = document.getElementById('googleSignInBtn');
@@ -60,7 +61,9 @@
     if(signInBtn){
       signInBtn.addEventListener('click', async () => {
         try{
-          await signInWithPopup(auth, new GoogleAuthProvider());
+          const provider = new GoogleAuthProvider();
+          provider.setCustomParameters({ prompt: 'select_account' }); // always show the account picker instead of silently reusing whatever Google account is already logged into this browser
+          await signInWithPopup(auth, provider);
         }catch(e){
           alert('Sign-in failed: ' + (e.message || e));
         }
@@ -1409,10 +1412,11 @@
           <div style="flex:1;">
             <div id="googleUserName" style="font-size:.95em;"></div>
             <div id="googleUserEmail" style="font-size:.8em;opacity:.65;"></div>
+            <div id="cloudSyncStatus" style="font-size:.75em;opacity:.55;margin-top:2px;">Synced</div>
           </div>
           <button class="btn" id="googleSignOutBtn" style="width:auto;padding:6px 14px;">Sign out</button>
         </div>
-        <div class="settings-note">Signing in doesn't move your entries yet — it just links your Google account for future cloud sync.</div>
+        <div class="settings-note">Entries and letters sync automatically to your account. Photos stay on this device only.</div>
       </div>
 
       <div class="settings-section">
@@ -1779,64 +1783,121 @@ const load = (k) => JSON.parse(localStorage.getItem(k) || '[]');
 const save = (k,v) => {
   localStorage.setItem(k, JSON.stringify(v));
   if((k === LS_ENTRIES || k === LS_LETTERS) && window.__cloudUser){
-    pushToCloud();
+    schedulePushToCloud();
   }
 };
 
 let entries = load(LS_ENTRIES);
 let letters = load(LS_LETTERS);
 
-/* ---------- cloud sync (Firestore, gated on Google sign-in) ---------- */
+/* ---------- cloud sync (Firestore, gated on Google sign-in) ----------
+   Notes on how this is scoped, since it's worth understanding before touching it again:
+   - Only entries and letters (your actual journal content) sync right now - not the
+     appearance/preference settings (theme, font, reminder time, etc). Those stay
+     per-device for now; could be added the same way later if wanted.
+   - Entry photos are deliberately NOT sent to the cloud. They're stored as full base64
+     image data, and Firestore documents are capped at 1MB total - a handful of photos
+     would blow past that and silently fail the whole sync. Photos stay device-local;
+     everything else about an entry (text, mood, date, etc) still syncs normally, and
+     pulling cloud data re-attaches whatever photos this device already has for a
+     matching entry rather than wiping them out.
+*/
 let __cloudUnsub = null;
 let __cloudPushTimer = null;
 let __receivingFromCloud = false;
+const __deviceId = Math.random().toString(36).slice(2) + Date.now().toString(36); // lets this device recognize and ignore its own writes echoing back through the listener
+function __lastSyncAtKey(){ return 'dearlater_last_cloud_sync_at'; }
+function __getLastSyncAt(){ var v = localStorage.getItem(__lastSyncAtKey()); return v ? Number(v) : 0; }
+function __setLastSyncAt(t){ try{ localStorage.setItem(__lastSyncAtKey(), String(t)); }catch(e){} }
 
-function pushToCloud(){
+function __setSyncStatus(text){
+  var el = document.getElementById('cloudSyncStatus');
+  if(el) el.textContent = text;
+}
+
+function __stripPhotosForCloud(list){
+  return (list || []).map(function(item){
+    if(!item || !item.photos) return item;
+    var copy = Object.assign({}, item);
+    delete copy.photos;
+    return copy;
+  });
+}
+
+function __reattachLocalPhotos(remoteEntries){
+  var localEntries = load(LS_ENTRIES);
+  var byId = {};
+  localEntries.forEach(function(e){ if(e && e.id) byId[e.id] = e; });
+  return (remoteEntries || []).map(function(re){
+    var local = re && re.id ? byId[re.id] : null;
+    if(local && local.photos && local.photos.length) re.photos = local.photos;
+    return re;
+  });
+}
+
+function schedulePushToCloud(){
   if(!window.__cloudUser || __receivingFromCloud) return;
+  __setSyncStatus('Syncing…');
   clearTimeout(__cloudPushTimer);
   __cloudPushTimer = setTimeout(async () => {
     try{
       const { doc, setDoc } = window.__fs;
+      const ts = Date.now();
       await setDoc(doc(window.db, 'journals', window.__cloudUser.uid), {
-        entries, letters, updatedAt: Date.now()
+        entries: __stripPhotosForCloud(entries),
+        letters,
+        updatedBy: __deviceId,
+        updatedAt: ts
       });
-    }catch(e){ console.error('Cloud sync failed', e); }
+      __setLastSyncAt(ts);
+      __setSyncStatus('Synced');
+    }catch(e){
+      console.error('Cloud sync failed', e);
+      __setSyncStatus('Sync failed - will retry on next change');
+    }
   }, 800);
+}
+
+function __applyRemoteJournalData(data){
+  __receivingFromCloud = true;
+  entries = __reattachLocalPhotos(data.entries || entries);
+  letters = data.letters || letters;
+  localStorage.setItem(LS_ENTRIES, JSON.stringify(entries));
+  localStorage.setItem(LS_LETTERS, JSON.stringify(letters));
+  if(data.updatedAt) __setLastSyncAt(data.updatedAt);
+  __receivingFromCloud = false;
+  if(typeof renderAll === 'function') renderAll();
 }
 
 async function pullFromCloudThenListen(user){
   const { doc, getDoc, onSnapshot } = window.__fs;
   const ref = doc(window.db, 'journals', user.uid);
+  __setSyncStatus('Checking for existing data…');
   try{
     const snap = await getDoc(ref);
-    if(snap.exists()){
-      const data = snap.data();
-      __receivingFromCloud = true;
-      entries = data.entries || entries;
-      letters = data.letters || letters;
-      save(LS_ENTRIES, entries);
-      save(LS_LETTERS, letters);
-      __receivingFromCloud = false;
-      if(typeof renderAll === 'function') renderAll();
+    if(snap.exists() && Object.keys(snap.data()).length){
+      __applyRemoteJournalData(snap.data());
+      __setSyncStatus('Synced');
     } else {
-      // No cloud copy yet — push whatever is on this device up as the first copy
-      pushToCloud();
+      // No cloud copy yet - push whatever is on this device up as the first copy
+      __setSyncStatus('Backing up existing data…');
+      schedulePushToCloud();
     }
-  }catch(e){ console.error('Initial cloud fetch failed', e); }
+  }catch(e){
+    console.error('Initial cloud fetch failed', e);
+    __setSyncStatus("Couldn't reach the cloud - your data is still safe on this device");
+  }
 
   if(__cloudUnsub) __cloudUnsub();
   __cloudUnsub = onSnapshot(ref, (snap) => {
     if(!snap.exists()) return;
+    if(snap.metadata.hasPendingWrites) return; // our own write still in flight, not yet confirmed by the server
     const data = snap.data();
-    if(data.updatedAt && data.updatedAt === window.__lastPushedAt) return;
-    __receivingFromCloud = true;
-    entries = data.entries || entries;
-    letters = data.letters || letters;
-    localStorage.setItem(LS_ENTRIES, JSON.stringify(entries));
-    localStorage.setItem(LS_LETTERS, JSON.stringify(letters));
-    __receivingFromCloud = false;
-    if(typeof renderAll === 'function') renderAll();
-  });
+    if(data.updatedBy === __deviceId) return; // our own confirmed write echoing back - already applied when we made it
+    if(!data.updatedAt || data.updatedAt <= __getLastSyncAt()) return; // not newer than what we already have (also makes the snapshot that always fires immediately on subscribe harmless)
+    __setSyncStatus('New data from another device…');
+    __applyRemoteJournalData(data);
+  }, () => { /* listener error (permissions/offline) - not critical, local use and the next push/pull still work */ });
 }
 
 window.addEventListener('journal-auth-changed', (e) => {
