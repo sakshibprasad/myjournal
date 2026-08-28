@@ -198,7 +198,7 @@
   }
   #app[data-theme="light"] .entry-card, #app[data-theme="sage"] .entry-card,
   #app[data-theme="olive"] .entry-card, #app[data-theme="yellow"] .entry-card{
-    box-shadow:0 6px 16px rgba(60,50,30,.12); border:1px solid rgba(60,50,30,.1);
+    box-shadow:0 16px 36px rgba(60,50,30,.14), inset 0 1px 0 rgba(255,255,255,.5); border:1px solid rgba(60,50,30,.1);
   }
   #app[data-theme="light"] .prompt-card, #app[data-theme="sage"] .prompt-card,
   #app[data-theme="olive"] .prompt-card, #app[data-theme="yellow"] .prompt-card{
@@ -416,11 +416,11 @@
   header.top.hero{
     min-height:260px;
     align-items:flex-end;
-    padding:20px 20px 34px;
+    padding:22px 22px 36px;
     border-bottom:none;
     margin:calc(12px + env(safe-area-inset-top, 0px)) 12px 4px;
-    border-radius:24px;
-    box-shadow:0 14px 32px rgba(0,0,0,.35);
+    border-radius:32px;
+    box-shadow:0 28px 56px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.12);
   }
   .hero-bg{
     position:absolute; inset:0; z-index:0; display:none;
@@ -571,22 +571,22 @@
     color:var(--text-lo); padding:4px 0 8px; opacity:.75;
   }
   .entry-card{
-    background:rgba(var(--ink-soft-rgb), 0.5);
-    backdrop-filter:blur(24px) saturate(1.3);
-    -webkit-backdrop-filter:blur(24px) saturate(1.3);
+    background:rgba(var(--ink-soft-rgb), 0.46);
+    backdrop-filter:blur(30px) saturate(1.5);
+    -webkit-backdrop-filter:blur(30px) saturate(1.5);
     color:var(--text-hi);
-    border:1px solid rgba(201,161,90,0.16);
-    border-radius:4px 16px 16px 16px;
-    padding:18px 16px 14px;
-    margin-bottom:14px;
-    box-shadow:0 14px 32px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,0.14);
+    border-radius:26px;
+    padding:20px 18px 16px;
+    margin-bottom:16px;
+    box-shadow:0 24px 48px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.1);
     animation:cardIn .4s ease;
     position:relative;
     overflow:hidden;
   }
   .entry-card::before{
-    content:''; position:absolute; top:0; left:0; width:40px; height:6px;
-    background:var(--gold); border-radius:4px 0 6px 0;
+    content:''; position:absolute; top:0; left:16px; right:16px; height:1px;
+    background:linear-gradient(90deg, transparent, rgba(211,169,90,.5), transparent);
   }
   @keyframes cardIn{ from{ opacity:0; transform:translateY(10px) scale(.98);} to{ opacity:1; transform:none;} }
   .compose-overlay .entry-card{
@@ -653,8 +653,16 @@
   .search-bar input:focus{ outline:none; }
   .search-bar .ico{ color:var(--text-lo); font-size:14px; }
 
-  .entry-photos{ display:flex; gap:6px; flex-wrap:wrap; margin:10px 0; }
-  .entry-photos img{ width:64px; height:64px; object-fit:cover; border-radius:8px; cursor:pointer; }
+  .entry-photos{ display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; margin:14px 0 4px; }
+  .entry-photos img{
+    width:56px; height:56px; object-fit:cover; border-radius:12px; cursor:pointer;
+    box-shadow:0 6px 14px rgba(0,0,0,.28); border:1px solid rgba(255,255,255,.1);
+  }
+  .entry-photos img:first-child{
+    width:88px; height:88px; border-radius:50%;
+    border:3px solid rgba(var(--ink-soft-rgb),.65);
+    box-shadow:0 10px 24px rgba(0,0,0,.4), 0 0 0 1px rgba(211,169,90,.3);
+  }
   .entry-stickers{ font-size:16px; margin-top:6px; letter-spacing:5px; }
   .entry-location{ font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text-lo); margin-top:8px; }
   .entry-card .actions{ display:flex; gap:10px; margin:12px -6px -6px; padding-top:10px; border-top:1px solid var(--ink-line); }
@@ -709,16 +717,32 @@
 
   .envelope{
     position:relative;
-    border-radius:14px;
-    padding:18px 16px;
+    border-radius:26px;
+    padding:22px 20px;
     margin-bottom:16px;
     overflow:hidden;
-    border:1px solid var(--ink-line);
+    border:1px solid rgba(255,255,255,.14);
     color:var(--text-hi);
+    box-shadow:0 20px 44px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.1);
   }
-  .envelope.locked{ background:linear-gradient(180deg, var(--ink-soft), var(--ink)); }
-  .envelope.ready{ background:linear-gradient(180deg, var(--ink-soft), var(--ink)); border-color:var(--gold); }
-  .envelope.opened{ background:var(--paper); color:#2b2620; }
+  .envelope.locked{
+    background:rgba(var(--ink-soft-rgb),.42);
+    backdrop-filter:blur(26px) saturate(1.35);
+    -webkit-backdrop-filter:blur(26px) saturate(1.35);
+  }
+  .envelope.ready{
+    background:rgba(var(--ink-soft-rgb),.5);
+    backdrop-filter:blur(26px) saturate(1.45);
+    -webkit-backdrop-filter:blur(26px) saturate(1.45);
+    border-color:rgba(211,169,90,.4);
+  }
+  .envelope.opened{
+    background:rgba(255,250,240,.86);
+    backdrop-filter:blur(16px);
+    -webkit-backdrop-filter:blur(16px);
+    color:#2b2620;
+    box-shadow:0 16px 36px rgba(60,40,20,.18), inset 0 1px 0 rgba(255,255,255,.55);
+  }
 
   .envelope .flap{
     position:absolute; top:0; left:0; right:0; height:46px;
@@ -743,9 +767,9 @@
   .envelope.opened .env-title{ color:#2b2620; }
 
   .seal{
-    position:absolute; top:38px; right:18px; width:40px; height:40px; border-radius:50%;
+    position:absolute; top:38px; right:18px; width:42px; height:42px; border-radius:50%;
     background:radial-gradient(circle at 35% 30%, #d3854f, var(--rust-deep));
-    box-shadow:0 3px 6px rgba(0,0,0,.4), inset 0 0 0 1px rgba(255,255,255,.15);
+    box-shadow:0 6px 14px rgba(0,0,0,.4), inset 0 0 0 1px rgba(255,255,255,.2), 0 0 0 4px rgba(255,255,255,.08);
     display:flex; align-items:center; justify-content:center;
     font-family:'Cormorant Garamond', serif; font-size:14px; color:#fbe6c8;
     transform:rotate(-8deg);
@@ -768,9 +792,10 @@
     position:relative; z-index:1; opacity:.85;
   }
   .empty-card{
-    background:rgba(var(--ink-soft-rgb),.4); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
-    border:1px solid rgba(var(--ink-soft-rgb),.35); border-radius:14px;
-    padding:28px 20px; margin-bottom:16px; text-align:center;
+    background:rgba(var(--ink-soft-rgb),.4); backdrop-filter:blur(20px) saturate(1.3); -webkit-backdrop-filter:blur(20px) saturate(1.3);
+    border:1px solid rgba(255,255,255,.12); border-radius:26px;
+    padding:30px 22px; margin-bottom:16px; text-align:center;
+    box-shadow:0 16px 36px rgba(0,0,0,.24), inset 0 1px 0 rgba(255,255,255,.08);
     color:var(--text-lo); font-style:italic; font-family:'Cormorant Garamond',serif; font-size:16px;
   }
   .env-body{
@@ -1637,7 +1662,7 @@
       <button id="composeVoiceBtn" type="button" title="Voice input">Voice</button>
       <button id="composeStickerBtn" type="button" title="Stickers">Sticker</button>
     </div>
-    <input type="file" id="composePhotoInput" accept="image/*" multiple style="display:none;">
+    <input type="file" id="composePhotoInput" accept="image/*,.heic,.heif" multiple style="display:none;">
 
     <div class="compose-stickers hidden" id="composeStickerRow"></div>
     <div class="sticker-custom hidden" id="stickerCustomRow">
@@ -1753,6 +1778,7 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
 <script>
 /* ---------- loader quotes ---------- */
 const LOADER_QUOTES = [
@@ -2646,31 +2672,49 @@ function renderComposeAttachments(){
   if(rmLoc) rmLoc.onclick = ()=>{ composeLocation = null; renderComposeAttachments(); };
 }
 
+function isHeicFile(file){
+  const type = (file.type || '').toLowerCase();
+  const name = (file.name || '').toLowerCase();
+  return type === 'image/heic' || type === 'image/heif' || name.endsWith('.heic') || name.endsWith('.heif');
+}
+
+async function toRenderableFile(file){
+  if(!isHeicFile(file)) return file;
+  if(typeof heic2any === 'undefined'){
+    throw new Error('HEIC support needs an internet connection the first time');
+  }
+  const converted = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.85 });
+  const blob = Array.isArray(converted) ? converted[0] : converted;
+  return new File([blob], (file.name || 'photo').replace(/\.(heic|heif)$/i, '.jpg'), { type: 'image/jpeg' });
+}
+
 function compressImage(file){
   return new Promise((resolve, reject)=>{
-    const reader = new FileReader();
-    reader.onload = (ev)=>{
-      const img = new Image();
-      img.onload = ()=>{
-        const maxDim = 900;
-        let { width, height } = img;
-        if(width > height && width > maxDim){ height = height*(maxDim/width); width = maxDim; }
-        else if(height > maxDim){ width = width*(maxDim/height); height = maxDim; }
-        const canvas = document.createElement('canvas');
-        canvas.width = width; canvas.height = height;
-        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.72));
+    toRenderableFile(file).then(renderable=>{
+      const reader = new FileReader();
+      reader.onload = (ev)=>{
+        const img = new Image();
+        img.onload = ()=>{
+          const maxDim = 900;
+          let { width, height } = img;
+          if(width > height && width > maxDim){ height = height*(maxDim/width); width = maxDim; }
+          else if(height > maxDim){ width = width*(maxDim/height); height = maxDim; }
+          const canvas = document.createElement('canvas');
+          canvas.width = width; canvas.height = height;
+          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.72));
+        };
+        img.onerror = reject;
+        img.src = ev.target.result;
       };
-      img.onerror = reject;
-      img.src = ev.target.result;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
+      reader.onerror = reject;
+      reader.readAsDataURL(renderable);
+    }).catch(reject);
   });
 }
 
 async function handlePhotoFiles(fileList){
-  const files = Array.from(fileList || []).filter(f => f.type.startsWith('image/'));
+  const files = Array.from(fileList || []).filter(f => f.type.startsWith('image/') || isHeicFile(f));
   if(!files.length) return;
   if(composeMode === 'freeform'){
     for(const file of files.slice(0, 6)){
@@ -2890,7 +2934,7 @@ async function checkGrammar(silent){
     const res = await fetch('https://api.languagetool.org/v2/check', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'text=' + encodeURIComponent(ta.value) + '&language=' + grammarLang() + '&level=picky'
+      body: 'text=' + encodeURIComponent(ta.value) + '&language=' + grammarLang() + '&level=default&enabledOnly=false'
     });
     if(!res.ok) throw new Error('bad response');
     const data = await res.json();
